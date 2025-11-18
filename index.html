@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shadow Puzzle - Легкий режим</title>
+    <title>Shadow Puzzle - Без подсказок</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #222; font-family: 'Segoe UI', sans-serif; }
+        body { margin: 0; overflow: hidden; background: #222; font-family: 'Segoe UI', sans-serif; user-select: none; }
         
         #ui {
             position: absolute;
@@ -13,9 +13,11 @@
             color: white;
             pointer-events: none;
             text-shadow: 1px 1px 2px black;
+            z-index: 10;
         }
         h1 { margin: 0; font-size: 1.5rem; letter-spacing: 2px; }
         #level-text { font-size: 1.2rem; color: #00ff88; font-weight: bold; margin-top: 5px; }
+        #shape-name { font-size: 0.9rem; color: #aaa; margin-top: 5px; font-style: italic; }
         
         #win-msg {
             position: absolute;
@@ -29,14 +31,7 @@
             transition: opacity 0.3s;
             pointer-events: none;
             text-align: center;
-        }
-        #hint {
-            position: absolute;
-            bottom: 20px; width: 100%;
-            text-align: center;
-            color: #aaa;
-            pointer-events: none;
-            font-size: 0.9rem;
+            z-index: 10;
         }
     </style>
     
@@ -49,21 +44,17 @@
     <div id="ui">
         <h1>SHADOW CAST</h1>
         <div id="level-text">УРОВЕНЬ: 1</div>
+        <div id="shape-name">Куб</div>
     </div>
     
     <div id="win-msg">ОТЛИЧНО!</div>
-    <div id="hint">Крути куб, чтобы совпасть с зеленой целью. (Допускается погрешность)</div>
 
     <script type="module">
         import * as THREE from 'three';
 
-        // --- Настройки игры ---
+        // --- Настройки ---
         let level = 1;
-        
-        // !!! ЗДЕСЬ МЕНЯЕМ СЛОЖНОСТЬ !!!
-        // 0.2 = Сложно
-        // 0.5 = Легко (большая погрешность)
-        const WIN_TOLERANCE = 0.5; 
+        const WIN_TOLERANCE = 0.5; // Погрешность (0.5 = легко, 0.2 = сложно)
 
         let isDragging = false;
         let isTransitioning = false;
@@ -74,7 +65,7 @@
         scene.background = new THREE.Color(0x222222);
 
         const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
-        camera.position.set(0, 0, 12);
+        camera.position.set(0, 0, 13);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -96,34 +87,78 @@
         // --- Объекты ---
         
         // Стена
-        const wallGeo = new THREE.PlaneGeometry(50, 50);
+        const wallGeo = new THREE.PlaneGeometry(60, 60);
         const wallMat = new THREE.MeshStandardMaterial({ color: 0x444444, roughness: 0.8 });
         const wall = new THREE.Mesh(wallGeo, wallMat);
         wall.position.z = -8;
         wall.receiveShadow = true;
         scene.add(wall);
 
-        const cubeGeometry = new THREE.BoxGeometry(3, 3, 3);
+        // Начальная геометрия
+        let geometry = new THREE.BoxGeometry(1,1,1);
 
         // Цель (Призрак)
-        const targetMat = new THREE.MeshBasicMaterial({ 
-            color: 0x00ff88, 
-            wireframe: true, 
-            transparent: true, 
-            opacity: 0.3 
-        });
-        const targetMesh = new THREE.Mesh(cubeGeometry, targetMat);
+        const targetMat = new THREE.MeshBasicMaterial({ color: 0x00ff88, wireframe: true, transparent: true, opacity: 0.3 });
+        const targetMesh = new THREE.Mesh(geometry, targetMat);
         scene.add(targetMesh);
 
-        // Игрок
+        // Игрок (Твердый объект)
         const playerMat = new THREE.MeshStandardMaterial({ color: 0xffaa00, roughness: 0.2 });
-        const playerMesh = new THREE.Mesh(cubeGeometry, playerMat);
+        const playerMesh = new THREE.Mesh(geometry, playerMat);
         playerMesh.castShadow = true;
         scene.add(playerMesh);
 
-        // --- Логика ---
+        // --- Логика смены форм ---
+
+        function getGeometryData(lvl) {
+            // Циклическая смена форм
+            const type = (lvl - 1) % 6;
+            
+            switch(type) {
+                case 0: return { 
+                    geo: new THREE.BoxGeometry(3, 3, 3), 
+                    name: "Куб" 
+                };
+                case 1: return { 
+                    geo: new THREE.TetrahedronGeometry(3), 
+                    name: "Пирамида" 
+                };
+                case 2: return { 
+                    geo: new THREE.OctahedronGeometry(2.5), 
+                    name: "Октаэдр" 
+                };
+                case 3: return { 
+                    geo: new THREE.ConeGeometry(1.5, 4, 16), 
+                    name: "Конус" 
+                };
+                case 4: return { 
+                    geo: new THREE.TorusGeometry(1.8, 0.6, 16, 50), 
+                    name: "Тор (Пончик)" 
+                };
+                case 5: return { 
+                    geo: new THREE.TorusKnotGeometry(1.2, 0.4, 100, 16), 
+                    name: "Узел (Сложно!)" 
+                };
+                default: return { geo: new THREE.BoxGeometry(3,3,3), name: "Куб" };
+            }
+        }
 
         function startLevel() {
+            isTransitioning = false;
+            document.getElementById('win-msg').style.opacity = 0;
+            document.getElementById('level-text').innerText = "УРОВЕНЬ: " + level;
+
+            // Удаляем старую геометрию из памяти
+            if (playerMesh.geometry) playerMesh.geometry.dispose();
+            if (targetMesh.geometry) targetMesh.geometry.dispose();
+
+            // Получаем новую
+            const data = getGeometryData(level);
+            playerMesh.geometry = data.geo;
+            targetMesh.geometry = data.geo;
+            document.getElementById('shape-name').innerText = data.name;
+
+            // Сброс игрока
             playerMesh.rotation.set(0, 0, 0);
             playerMesh.material.color.setHex(0xffaa00);
 
@@ -133,19 +168,15 @@
                 Math.random() * Math.PI * 2,
                 Math.random() * Math.PI * 2
             );
-
-            document.getElementById('level-text').innerText = "УРОВЕНЬ: " + level;
-            document.getElementById('win-msg').style.opacity = 0;
-            isTransitioning = false;
         }
 
         function handleWin() {
+            if (isTransitioning) return;
             isTransitioning = true;
-            
-            // Визуальный эффект "примагничивания"
-            // Раз мы разрешили погрешность, красиво будет, если куб сам довернется идеально
+
+            // Авто-доводка до идеала
             playerMesh.quaternion.copy(targetMesh.quaternion); 
-            playerMesh.material.color.setHex(0x00ff88); // Зеленый цвет
+            playerMesh.material.color.setHex(0x00ff88); 
 
             document.getElementById('win-msg').style.opacity = 1;
 
@@ -155,14 +186,16 @@
             }, 1500);
         }
 
+        // Запуск
         startLevel();
 
-        // --- Управление ---
-
+        // --- Управление (Мышь/Тач) ---
         document.addEventListener('mousedown', onDown);
         document.addEventListener('touchstart', (e) => onDown(e.touches[0]));
+        
         document.addEventListener('mouseup', () => isDragging = false);
         document.addEventListener('touchend', () => isDragging = false);
+        
         document.addEventListener('mousemove', onMove);
         document.addEventListener('touchmove', (e) => onMove(e.touches[0]));
 
@@ -184,24 +217,20 @@
         }
 
         // --- Анимация ---
-
         function animate() {
             requestAnimationFrame(animate);
 
+            // Легкое покачивание
             const float = Math.sin(Date.now() * 0.002) * 0.1;
             playerMesh.position.y = float;
             targetMesh.position.y = float;
 
             if (!isTransitioning) {
-                // Проверка разницы углов
                 const angleDiff = playerMesh.quaternion.angleTo(targetMesh.quaternion);
-                
-                // Если разница меньше нашего допуска (0.5), засчитываем победу
                 if (angleDiff < WIN_TOLERANCE) {
                     handleWin();
                 }
             }
-
             renderer.render(scene, camera);
         }
 
